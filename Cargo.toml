@@ -1,0 +1,13 @@
+[package]
+name = "tiny-args"
+version = "0.1.0"
+edition = "2024"
+description = "Tiny command line argument parser"
+readme      = "README.md"
+categories  = ["cli", "args"]
+keywords    = ["cli", "args", "parser", "tiny", "simple"]
+
+license    = "MIT"
+repository = "https://github.com/lhndo/tiny-args"
+
+[dependencies]
