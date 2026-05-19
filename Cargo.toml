@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "Tiny command line argument parser"
 readme      = "README.md"
-categories  = ["cli", "args"]
+categories  = ["command-line-interface"]
 keywords    = ["cli", "args", "parser", "tiny", "simple"]
 
 license    = "MIT"
