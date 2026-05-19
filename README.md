@@ -15,6 +15,9 @@ use tiny_args::*;
 use std::process::ExitCode;
 
 
+fn main() -> ExitCode {
+    let mut args = TinyArgs::new();
+
     // Optional help definitions:
     args.define_help_program_name("demo_program");
     args.define_help_description("A demo for TinyArgs");
