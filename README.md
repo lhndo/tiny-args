@@ -54,6 +54,8 @@ fn main() -> ExitCode {
 ```
 >demo_program --help
 
+A demo for TinyArgs
+
 Help:
 
   Usage: demo_program [OPTION] [PATHS]...

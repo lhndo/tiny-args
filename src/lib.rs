@@ -456,7 +456,7 @@ impl TinyArgs {
         };
 
         self.help = format!(
-            " in the given order
+            " 
 {description}
 
 Help:
