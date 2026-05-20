@@ -332,11 +332,15 @@ impl TinyArgs {
         let mut args_iter = std::env::args().peekable();
 
         let input_name = args_iter.next().ok_or_else(|| {
-            Error::Parse("Failed parsing starting argument (executable path)".to_owned())
+            Error::Parse("Failed parsing first argument (executable path)".to_owned())
         })?;
 
         if self.program_name.is_empty() {
-            self.program_name = input_name
+            let split: Vec<&str> = input_name.split(|c| c == '\\' || c == '/').collect();
+
+            self.program_name = split
+                .last()
+                .map_or("program_name".to_owned(), |s| s.to_string())
         }
 
         for input in args_iter {
