@@ -11,38 +11,42 @@ A tiny command line argument parser with automatic help generation, and argument
 ## Example
 
 ```rust
-use tiny_args::*;
 use std::process::ExitCode;
-
+use tiny_args::*;
 
 fn main() -> ExitCode {
     let mut args = TinyArgs::new();
 
     // Optional help definitions:
-    args.define_help_program_name("demo_program");
-    args.define_help_description("A demo for TinyArgs");
-    args.define_help_usage("[OPTION] [PATHS]...");
+    args.define_help_program_name("demo");
+    args.define_help_description("A demo program for TinyArgs");
+    args.define_help_usage("[OPTIONS] [COMMAND] [ARGS]...");
     args.define_help_example("--name=test some/path/  - Sets some values");
 
-    let name = args.define_arg_txt("name", "", "test", "A name of something");
-    let times = args.define_arg_num("times", "t", 22, "How many times");
-    let version = args.define_arg_bool("version", "v", false, "Display version");
+    let list = args.define_command("list", "List vargs");
+    let version = args.define_command("version", "Display version");
+
+    let name = args.define_option_txt("name", "", "test", "A name of something");
+    let context = args.define_option_num("context", "c", 4, "Context lines");
+    let verbose = args.define_option_bool("verbose", "v", false, "Verbose mode");
 
     if let Err(e) = args.parse_arguments() {
         eprintln!("Error: {e}");
         return ExitCode::FAILURE;
     }
 
-    if args.get(version) {
+    println!("name: {}", args.get_option(name));
+    println!("context: {}", args.get_option(context));
+    println!("verbose: {}", args.get_option(verbose));
+
+    if args.command() == version {
         println!("Version: 1.2.3.4");
     }
 
-    println!("name: {}", args.get(name));
-    println!("times: {}", args.get(times));
-
-    println!("Paths:");
-    for arg in args.get_vargs() {
-        println!("{arg}");
+    if args.command() == list {
+        for arg in args.get_va_args() {
+            println!("{arg}");
+        }
     }
 
     ExitCode::SUCCESS
@@ -54,22 +58,26 @@ fn main() -> ExitCode {
 ```
 >demo_program --help
 
-A demo for TinyArgs
+A demo program for TinyArgs
 
 Help:
 
-  Usage: demo_program [OPTION] [PATHS]...
+  Usage: demo [OPTIONS] [COMMAND] [ARGS]...
+
+  Commands:
+
+      list                     List args
+      version                  Display version
 
   Options:
 
-    -h, --help                   Display this help message
-        --name=<name>            A name of something [Default: test]
-    -t, --times=<times>          How many times [Default: 22]
-    -v, --version                Display version number
-
+    -c, --context=<context>    Context lines [Default: 4]
+    -h, --help                 Display this help message
+        --name=<name>          A name of something [Default: test]
+    -v, --verbose              Verbose mode
 
 Examples:
 
-  demo_program --name=test some/path/  - Sets some values
+  demo --name=test some/path/  - Sets some values
 
 ```

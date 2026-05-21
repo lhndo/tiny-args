@@ -1,51 +1,58 @@
 /*!
  A tiny command line argument parser with automatic help generation, and argument validation.
 
- - Internally, the arguments are stored inside a Value enum containing three simple types:
-   bool, String, and f64 representing booleans, numbers and text.
- - Arguments without the `-` or `--` prefixes are stored inside a Vec "bucket" of VARGS in the given order. This list can be accessed using the `get_vargs()` function.
- - Arguments with values are set like: `--arg=value`.
- - Help sections such as description, usage, and examples can be redefined if needed using the
+- Inputs are categorized as `commands`, `options`, and `va args`.
+- Commands and va args have no prefixes. First argument of such kind is stored as the command, and the rest into a va_args "bucket", which can be retrived with `get_va_args()`.
+- Options/flags are defined with the `-` or `--` prefixes.
+- These can hold values representing booleans, numbers and text values, (stored internally as bool, f64 and Strings).
+- Arguments with values are strictly defined with the equal sign `=` like: `--arg=value`.
+- Help sections such as description, usage, and examples can be redefined if needed using the
    provided functions: `define_help_...()`.
  - The help call is hard coded.
 
 
  ## Example
  ```
- use tiny_args::*;
- use std::process::ExitCode;
+use std::process::ExitCode;
+use tiny_args::*;
 
- fn main() -> ExitCode {
-     let mut args = TinyArgs::new();
+fn main() -> ExitCode {
+    let mut args = TinyArgs::new();
 
-     // Optional definitions:
-     args.define_help_program_name("demo_program");
-     args.define_help_description("A demo for TinyArgs");
-     args.define_help_usage("[OPTION] [PATHS]...");
-     args.define_help_example("--name=test some/path/  - Sets some values");
+    // Optional help definitions:
+    args.define_help_program_name("demo");
+    args.define_help_description("A demo program for TinyArgs");
+    args.define_help_usage("[OPTIONS] [COMMAND] [ARGS]...");
+    args.define_help_example("--name=test some/path/  - Sets some values");
 
-     let name = args.define_arg_txt("name", "", "test", "A name of something");
-     let times = args.define_arg_num("times", "t", 22, "How many times");
-     let version = args.define_arg_bool("version", "v", false, "Display version");
+    let list = args.define_command("list", "List vargs");
+    let version = args.define_command("version", "Display version");
 
-     if let Err(e) = args.parse_arguments() {
-         eprintln!("Error: {e}");
-         return ExitCode::FAILURE;
-     }
+    let name = args.define_option_txt("name", "", "test", "A name of something");
+    let context = args.define_option_num("context", "c", 4, "Context lines");
+    let verbose = args.define_option_bool("verbose", "v", false, "Verbose mode");
 
-     if args.get(version) {
-         println!("Version: 1.2.3.4");
-     }
+    if let Err(e) = args.parse_arguments() {
+        eprintln!("Error: {e}");
+        return ExitCode::FAILURE;
+    }
 
-     println!("name: {}", args.get(name));
-     println!("times: {}", args.get(times));
+    println!("name: {}", args.get_option(name));
+    println!("context: {}", args.get_option(context));
+    println!("verbose: {}", args.get_option(verbose));
 
-     println!("Paths:");
-     for arg in args.get_vargs() {
-         println!("{arg}");
-     }
+    if args.command() == version {
+        println!("Version: 1.2.3.4");
+    }
 
-     ExitCode::SUCCESS
+    if args.command() == list {
+        for arg in args.get_va_args() {
+            println!("{arg}");
+        }
+    }
+
+    ExitCode::SUCCESS
+}
  }
  ```
 ## Generated Help
@@ -53,23 +60,28 @@
 ```none
 >demo_program --help
 
+A demo program for TinyArgs
+
 Help:
 
-  Usage: demo_program [OPTION] [PATHS]...
+  Usage: demo [OPTIONS] [COMMAND] [ARGS]...
+
+  Commands:
+
+      list                     List args
+      version                  Display version
 
   Options:
 
-    -h, --help                   Display this help message
-        --name=<name>            A name of something [Default: test]
-    -t, --times=<times>          How many times [Default: 22]
-    -v, --version                Display version number
-
+    -c, --context=<context>    Context lines [Default: 4]
+    -h, --help                 Display this help message
+        --name=<name>          A name of something [Default: test]
+    -v, --verbose              Verbose mode
 
 Examples:
 
-  demo_program --name=test some/path/  - Sets some values
+  demo --name=test some/path/  - Sets some values
 ```
-
 */
 
 use std::any::type_name;
@@ -82,7 +94,8 @@ use std::str::ParseBoolError;
 #[derive(Clone, Debug)]
 pub enum Error {
     ParseValue { value: String, arg: String },
-    UnknownArg(String),
+    UnknownOpt(String),
+    UnknownCmd(String),
     Parse(String),
 }
 
@@ -92,7 +105,8 @@ impl Display for Error {
             Error::ParseValue { value, arg } => {
                 write!(f, "Cannot parse value: {} for argument: {}", value, arg)
             }
-            Error::UnknownArg(s) => write!(f, "Unknown argument: {}", s),
+            Error::UnknownOpt(s) => write!(f, "Unknown option: {}", s),
+            Error::UnknownCmd(s) => write!(f, "Unknown command: {}", s),
             Error::Parse(s) => f.write_str(s),
         }
     }
@@ -104,21 +118,21 @@ impl std::error::Error for Error {}
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Bool(bool),
-    Txt(String),
     Num(f64),
+    Txt(String),
 }
 
 impl Value {
-    /// Parse str as num Val
-    pub fn parse_as_num(input_val: &str) -> Result<Self, ParseFloatError> {
-        let num = input_val.parse::<f64>()?;
-        Ok(Value::Num(num))
-    }
-
     /// Parse str as bool Val
     pub fn parse_as_bool(input_val: &str) -> Result<Self, ParseBoolError> {
         let b = input_val.parse::<bool>()?;
         Ok(Value::Bool(b))
+    }
+
+    /// Parse str as num Val
+    pub fn parse_as_num(input_val: &str) -> Result<Self, ParseFloatError> {
+        let num = input_val.parse::<f64>()?;
+        Ok(Value::Num(num))
     }
 }
 
@@ -166,6 +180,12 @@ pub struct Argument {
     pub was_set: bool,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Command {
+    pub name: &'static str,
+    pub description: &'static str,
+}
+
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct TinyArgs {
     pub program_name: String,
@@ -173,32 +193,34 @@ pub struct TinyArgs {
     pub help: String,
     pub usage: String,
     pub examples: Vec<String>,
-    pub args: HashMap<String, Argument>,
-    pub vargs: Vec<String>,
+    pub cmds: HashMap<String, Command>,
+    pub opts: HashMap<String, Argument>,
+    pub va_args: Vec<String>,
+    pub active_cmd: Option<Command>,
 }
 
 impl TinyArgs {
     /// Create a TinyArgs instance
     #[must_use]
     pub fn new() -> Self {
-        let mut ta = Self {
+        let mut res = Self {
             program_name: String::new(),
             description: String::new(),
             help: String::new(),
             usage: String::new(),
             examples: vec![],
-            args: HashMap::new(),
-            vargs: vec![],
+            cmds: HashMap::new(),
+            opts: HashMap::new(),
+            va_args: vec![],
+            active_cmd: None,
         };
 
-        ta.usage = "[OPTIONS] [VARGS]...".to_owned();
-
-        let _ = ta.define_arg_bool("help", "h", false, "Display this help message");
-        ta
+        let _ = res.define_option_bool("help", "h", false, "Display this help message");
+        res
     }
 
     /// Define the program name displayed in the help section
-    /// If not defined, the program name is derived automatically from the command line
+    /// If not defined, the program name is automatically derived from the command line
     pub fn define_help_program_name(&mut self, name: &str) {
         self.program_name = name.to_owned();
     }
@@ -221,68 +243,78 @@ impl TinyArgs {
         self.examples.push(examples.to_string());
     }
 
-    /// Define a boolean argument
+    /// Define a command
     #[must_use]
-    pub fn define_arg_bool(
+    pub fn define_command(&mut self, name: &'static str, description: &'static str) -> CmdHandle {
+        let arg = Command { name, description };
+        self.cmds.insert(name.to_owned(), arg);
+
+        CmdHandle { name }
+    }
+
+    /// Define a boolean option
+    #[must_use]
+    pub fn define_option_bool(
         &mut self,
         name: &'static str,
         short_name: &'static str,
         default_value: bool,
         description: &'static str,
-    ) -> ArgHandle<bool> {
-        self.define_arg(name, short_name, Value::Bool(default_value), description);
+    ) -> OptHandle<bool> {
+        self.define_argument(name, short_name, Value::Bool(default_value), description);
 
-        ArgHandle {
+        OptHandle {
             name,
             _p: PhantomData::<bool>,
         }
     }
 
-    /// Define a numerical argument
+    /// Define a numerical option
     #[must_use]
-    pub fn define_arg_num(
+    pub fn define_option_num(
         &mut self,
         name: &'static str,
         short_name: &'static str,
         default_value: impl Into<f64>,
         description: &'static str,
-    ) -> ArgHandle<f64> {
-        self.define_arg(
+    ) -> OptHandle<f64> {
+        self.define_argument(
             name,
             short_name,
             Value::Num(default_value.into()),
             description,
         );
 
-        ArgHandle {
+        OptHandle {
             name,
             _p: PhantomData::<f64>,
         }
     }
 
-    /// Define a textual argument
+    /// Define a text option
     #[must_use]
-    pub fn define_arg_txt(
+    pub fn define_option_txt(
         &mut self,
         name: &'static str,
         short_name: &'static str,
         default_value: &str,
         description: &'static str,
-    ) -> ArgHandle<String> {
-        self.define_arg(
+    ) -> OptHandle<String> {
+        self.define_argument(
             name,
             short_name,
             Value::Txt(default_value.into()),
             description,
         );
 
-        ArgHandle {
+        OptHandle {
             name,
             _p: PhantomData::<String>,
         }
     }
 
-    fn define_arg(
+    /// Internal
+    fn define_argument(
         &mut self,
         name: &'static str,
         short_name: &'static str,
@@ -297,23 +329,40 @@ impl TinyArgs {
             default: default_value,
             was_set: false,
         };
-        self.args.insert(name.to_owned(), arg);
+        self.opts.insert(name.to_owned(), arg);
     }
 
-    /// Gets the argument value from the stored handle
-    /// T is known at compile time from the handle
+    /// Get the option's value from the stored handle
     #[must_use]
-    pub fn get<T: FromValue>(&self, arg_handle: ArgHandle<T>) -> T {
-        let val = self.get_val(arg_handle.name);
+    pub fn get_option<T: FromValue>(&self, opt_handle: OptHandle<T>) -> T {
+        let val = &self.find_argument(opt_handle.name).value;
 
-        T::from_value(val).unwrap_or_else(|| {
+        T::from_value(&val).unwrap_or_else(|| {
             panic!(
                 "type mismatch for argument {} when converting from {:?} to {}",
-                arg_handle.name,
+                opt_handle.name,
                 val,
                 type_name::<T>()
             )
         })
+    }
+
+    /// Get the active command handle
+    /// CmdHandle::NONE is returned if no command is set
+    /// Example:
+    ///  ```
+    ///      if args.command() == version {
+    ///          println!("Version: 1.2.3.4");
+    ///      }
+    ///  ```
+    pub fn command(&self) -> CmdHandle {
+        let name = self.active_cmd.as_ref().map_or_else(|| "", |c| c.name);
+
+        if name.is_empty() {
+            return CmdHandle::NONE;
+        }
+
+        CmdHandle { name }
     }
 
     /// This function MUST be run for the input arguments to be processed
@@ -321,20 +370,26 @@ impl TinyArgs {
     /// Call example:
     /// ```
     ///
-    ///    if let Err(e) = ta.parse_arguments() {
+    ///    if let Err(e) = args.parse_arguments() {
     ///        eprintln!("Error: {e}");
     ///        return ExitCode::FAILURE;
     ///    }
     ///
     /// ```
     pub fn parse_arguments(&mut self) -> Result<(), Error> {
-        let mut vargs: Vec<String> = vec![];
-        let mut args_iter = std::env::args().peekable();
+        let args = std::env::args().collect();
+        self.parse_arguments_from_vec(args)
+    }
+
+    /// Parse arguments from a provided vector of Strings
+    pub fn parse_arguments_from_vec(&mut self, args: Vec<String>) -> Result<(), Error> {
+        let mut args_iter = args.iter();
 
         let input_name = args_iter.next().ok_or_else(|| {
             Error::Parse("Failed parsing first argument (executable path)".to_owned())
         })?;
 
+        // We derive the program name if none was defined by the user
         if self.program_name.is_empty() {
             let split: Vec<&str> = input_name.split(|c| c == '\\' || c == '/').collect();
 
@@ -344,25 +399,38 @@ impl TinyArgs {
         }
 
         for input in args_iter {
-            // Trimming - prefixes
+            // Trimming - or -- prefixes
             let trimmed_input = input.trim_start_matches('-').to_owned();
             if trimmed_input.is_empty() {
                 return Err(Error::Parse("Invalid argument starting with -".to_owned()));
             }
 
-            // Argument was not prefixed with - or --
-            // We add it to the VARGS bucket
-            if trimmed_input == input {
-                vargs.push(input);
+            // Parsing command or va_arg
+            if &trimmed_input == input {
+                // Argument was not prefixed with - or --
+                if let Some(cmd) = self.cmds.get_mut(&trimmed_input)
+                    && self.active_cmd.is_none()
+                {
+                    // No command was registered, and command is valid
+                    self.active_cmd = Some(cmd.clone());
+                    // TODO Do something about help?
+                    //
+                } else if self.active_cmd.is_some() || self.cmds.is_empty() {
+                    // Va args
+                    self.va_args.push(trimmed_input); // We add it to the va args bucket
+                } else {
+                    // Commands are defined, this is the first command input, but we don't recognise this specific one
+                    return Err(Error::UnknownCmd(trimmed_input));
+                }
                 continue; // We continue to next arg
             }
 
             let mut input_arg = trimmed_input;
             let mut input_val = String::new();
 
-            // Try Split arg=value
+            // Try splitting arg=value into separate parts
             //
-            // If value is not present, value string stays empty
+            // If value is not present, then the value string stays empty.
             if let Some((left, right)) = input_arg.split_once('=') {
                 if left.is_empty() {
                     return Err(Error::Parse(format!("Argument missing before ={}", right)));
@@ -375,13 +443,13 @@ impl TinyArgs {
                 input_arg = left.to_owned();
             }
 
-            // Help
+            // We catch help option flags and display it immediately
             if input_arg == "help" || input_arg == "h" {
                 self.print_help_and_exit(0);
             }
 
-            // Find Arg
-            let found_arg = self.args.iter_mut().find_map(|(_, a)| {
+            // Find the argument against user registered ones
+            let found_arg = self.opts.iter_mut().find_map(|(_, a)| {
                 if input_arg == a.name || input_arg == a.short_name {
                     Some(a)
                 } else {
@@ -391,14 +459,13 @@ impl TinyArgs {
 
             if let Some(argument) = found_arg {
                 argument.was_set = true;
-
-                // Boolean arguments/flags can be set without an explicit value
+                // Only boolean options/flags can be set without an explicit value
                 if input_val.is_empty() {
                     if matches!(argument.value, Value::Bool(_)) {
                         argument.value = Value::Bool(true)
                     }
                 }
-                // Argument with explicit value assignment arg=val
+                // Options/flags with explicit value assignment arg=val
                 else {
                     argument.value = match argument.value {
                         Value::Txt(_) => Value::Txt(input_val),
@@ -417,75 +484,94 @@ impl TinyArgs {
                     }
                 }
             } else {
-                return Err(Error::UnknownArg(input_arg));
+                // Argument not defined - unknown
+                return Err(Error::UnknownOpt(input_arg));
             }
         }
 
-        self.vargs = vargs;
         Ok(())
     }
 
-    fn get_arg(&self, name: &str) -> &Argument {
-        self.args
+    /// Internal - Acts as get, should not fail
+    fn find_argument(&self, name: &str) -> &Argument {
+        self.opts
             .get(name)
             .unwrap_or_else(|| panic!("Could not find argument: {name}"))
     }
 
-    fn get_val(&self, name: &str) -> &Value {
-        &self.get_arg(name).value
-    }
-
     /// Find if an argument was explicitly set by the user
-    pub fn was_set<T>(&self, arg_handle: ArgHandle<T>) -> bool {
-        self.get_arg(arg_handle.name).was_set
+    pub fn was_option_set<T>(&self, arg_handle: OptHandle<T>) -> bool {
+        self.find_argument(arg_handle.name).was_set
     }
 
-    /// Retrieve the rest of input vargs
-    pub fn get_vargs(&self) -> std::slice::Iter<'_, String> {
-        self.vargs.iter()
+    /// Retrieve the rest of input va args
+    pub fn get_va_args(&self) -> std::slice::Iter<'_, String> {
+        self.va_args.iter()
     }
 
     fn generate_help(&mut self) {
+        if self.usage.is_empty() {
+            self.usage = {
+                let mut options = "";
+                let mut commands = "";
+
+                if !self.opts.is_empty() {
+                    options = "[OPTIONS] "
+                };
+
+                if !self.cmds.is_empty() {
+                    commands = "[COMMANDS] "
+                };
+
+                format!("{}{}[ARGS]...", options, commands)
+            }
+        }
+
         let examples = {
             let mut res = String::new();
-            self.examples.iter().for_each(|s| {
-                res.push_str(&format!("  {program} {s}\n", program = self.program_name))
-            });
 
-            if !res.is_empty() {
-                res = "Examples:\n\n".to_owned() + &res;
+            if !self.examples.is_empty() {
+                res = "\nExamples:\n\n".to_owned() + &res;
+                self.examples.iter().for_each(|s| {
+                    res.push_str(&format!("  {program} {s}\n", program = self.program_name))
+                });
             }
 
             res
         };
 
         self.help = format!(
-            " 
+            "
 {description}
 
 Help:
 
   Usage: {program} {usage}
-
-  Options:
-
-{arguments}
-
-{examples}",
+{commands} {arguments} {examples}
+",
             description = self.description,
             program = self.program_name,
             usage = self.usage,
-            arguments = self.generate_args_help_list(),
+            commands = if !self.cmds.is_empty() {
+                "\n  Commands:\n\n".to_string() + &self.generate_cmds_help_list()
+            } else {
+                "".to_string()
+            },
+            arguments = if !self.opts.is_empty() {
+                "\n  Options:\n\n".to_string() + &self.generate_args_help_list()
+            } else {
+                "".to_string()
+            },
         );
     }
 
     fn generate_args_help_list(&self) -> String {
         let mut args_help = String::new();
 
-        let mut keys: Vec<&String> = self.args.keys().collect();
+        let mut keys: Vec<&String> = self.opts.keys().collect();
         keys.sort();
 
-        for arg in keys.iter().map(|&k| self.args.get(k).unwrap()) {
+        for arg in keys.iter().map(|&k| self.opts.get(k).unwrap()) {
             let name = "--".to_owned() + arg.name;
 
             let short_name = {
@@ -521,7 +607,7 @@ Help:
             }
 
             let line = &format!(
-                "{space:2}{short_name:>6}{name_and_val:25}{desc} {default}\n",
+                "{space:2}{short_name:>6}{name_and_val:23}{desc} {default}\n",
                 space = "",
                 name_and_val = name + &value,
                 desc = arg.description
@@ -533,8 +619,28 @@ Help:
         args_help
     }
 
+    fn generate_cmds_help_list(&self) -> String {
+        let mut cmds_help = String::new();
+
+        let mut keys: Vec<&String> = self.cmds.keys().collect();
+        keys.sort();
+
+        for cmd in keys.iter().map(|&k| self.cmds.get(k).unwrap()) {
+            let line = &format!(
+                "{space:6}{name:25}{desc}\n",
+                space = "",
+                name = cmd.name,
+                desc = cmd.description
+            );
+
+            cmds_help.push_str(line);
+        }
+
+        cmds_help
+    }
+
     /// Get help as str
-    pub fn get_help_txt(&mut self) -> &str {
+    pub fn get_help_text(&mut self) -> &str {
         if self.help.is_empty() {
             self.generate_help();
         }
@@ -544,18 +650,27 @@ Help:
 
     /// Print the program help
     pub fn print_help(&mut self) {
-        println!("{}", self.get_help_txt());
+        println!("{}", self.get_help_text());
     }
 
     /// Print the program help and exit program with code
     pub fn print_help_and_exit(&mut self, exit_code: i32) {
-        println!("{}", self.get_help_txt());
+        println!("{}", self.get_help_text());
         std::process::exit(exit_code);
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ArgHandle<T> {
-    pub name: &'static str,
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct OptHandle<T> {
+    name: &'static str,
     _p: PhantomData<T>,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct CmdHandle {
+    name: &'static str,
+}
+
+impl CmdHandle {
+    const NONE: Self = CmdHandle { name: "" };
 }

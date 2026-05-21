@@ -5,30 +5,35 @@ fn main() -> ExitCode {
     let mut args = TinyArgs::new();
 
     // Optional help definitions:
-    args.define_help_program_name("demo_program");
-    args.define_help_description("A demo for TinyArgs");
-    args.define_help_usage("[OPTION] [PATHS]...");
+    args.define_help_program_name("demo");
+    args.define_help_description("A demo program for TinyArgs");
+    args.define_help_usage("[OPTIONS] [COMMAND] [ARGS]...");
     args.define_help_example("--name=test some/path/  - Sets some values");
 
-    let name = args.define_arg_txt("name", "", "test", "A name of something");
-    let times = args.define_arg_num("times", "t", 22, "How many times");
-    let version = args.define_arg_bool("version", "v", false, "Display version number");
+    let list = args.define_command("list", "List vargs");
+    let version = args.define_command("version", "Display version");
+
+    let name = args.define_option_txt("name", "", "test", "A name of something");
+    let context = args.define_option_num("context", "c", 4, "Context lines");
+    let verbose = args.define_option_bool("verbose", "v", false, "Verbose mode");
 
     if let Err(e) = args.parse_arguments() {
         eprintln!("Error: {e}");
         return ExitCode::FAILURE;
     }
 
-    if args.get(version) {
+    println!("name: {}", args.get_option(name));
+    println!("context: {}", args.get_option(context));
+    println!("verbose: {}", args.get_option(verbose));
+
+    if args.command() == version {
         println!("Version: 1.2.3.4");
     }
 
-    println!("name: {}", args.get(name));
-    println!("times: {}", args.get(times));
-
-    println!("Paths:");
-    for arg in args.get_vargs() {
-        println!("{arg}");
+    if args.command() == list {
+        for arg in args.get_va_args() {
+            println!("{arg}");
+        }
     }
 
     ExitCode::SUCCESS
