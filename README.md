@@ -1,9 +1,10 @@
 A tiny command line argument parser with automatic help generation, and argument validation.
 
-- Internally, the arguments are stored inside a Value enum containing three simple types:
-  bool, String, and f64 representing booleans, numbers and text.
-- Arguments without the `-` or `--` prefixes are stored inside a Vec "bucket" of VARGS in the given order. This list can be accessed using the `get_vargs()` function.
-- Arguments with values are set like: `--arg=value`.
+- Inputs are categorized as `commands`, `options`, and `va args`.
+- Commands and va args have no prefixes. First argument of such kind is stored as the command, and the rest into a va_args "bucket", which can be retrived with `get_va_args()`.
+- Options/flags are defined with the `-` or `--` prefixes.
+- These can hold values representing booleans, numbers and text values, (stored internally as bool, f64 and Strings).
+- Arguments with values are strictly defined with the equal sign `=` like: `--arg=value`.
 - Help sections such as description, usage, and examples can be redefined if needed using the
   provided functions: `define_help_...()`.
 - The help call is hard coded.
