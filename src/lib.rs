@@ -1,18 +1,19 @@
 /*!
- A tiny command line argument parser with automatic help generation, and argument validation.
+A tiny command line argument parser with automatic help generation, and argument validation.
 
 - Inputs are categorized as `commands`, `options`, and `va args`.
-- Commands and va args have no prefixes. First argument of such kind is stored as the command, and the rest into a va_args "bucket", which can be retrived with `get_va_args()`.
-- Options/flags are defined with the `-` or `--` prefixes.
+- Options are defined with the `-` or `--` prefixes.
 - These can hold values representing booleans, numbers and text values, (stored internally as bool, f64 and Strings).
-- Arguments with values are strictly defined with the equal sign `=` like: `--arg=value`.
+- Boolean short name options can be set as groups. E.g.: `-abc`
+- Arguments with values are strictly defined by using the equal sign `=`, i.e. `--arg=value`.
+- Commands and va args have no dash prefix. First argument of such kind is stored as the command, and the rest into a va_args "bucket", which can be retrived with `get_va_args()`.
 - Help sections such as description, usage, and examples can be redefined if needed using the
-   provided functions: `define_help_...()`.
- - The help call is hard coded.
+  provided functions: `define_help_...()`.
+- The help call (-h --help) is hard coded during argument parsing.
 
 
  ## Example
- ```
+```
 use std::process::ExitCode;
 use tiny_args::*;
 
@@ -28,9 +29,9 @@ fn main() -> ExitCode {
     let list = args.define_command("list", "List vargs");
     let version = args.define_command("version", "Display version");
 
-    let name = args.define_option_txt("name", "", "test", "A name of something");
-    let context = args.define_option_num("context", "c", 4, "Context lines");
-    let verbose = args.define_option_bool("verbose", "v", false, "Verbose mode");
+    let name = args.define_option_txt("name", None, "test", "A name of something");
+    let context = args.define_option_num("context", 'c', 4, "Context lines");
+    let verbose = args.define_option_bool("verbose", 'v', false, "Verbose mode");
 
     if let Err(e) = args.parse_arguments() {
         eprintln!("Error: {e}");
@@ -52,9 +53,9 @@ fn main() -> ExitCode {
     }
 
     ExitCode::SUCCESS
-}
- }
+  }
  ```
+
 ## Generated Help
 
 ```none
@@ -170,10 +171,25 @@ impl FromValue for String {
     }
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct OptHandle<T> {
+    name: &'static str,
+    _p: PhantomData<T>,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct CmdHandle {
+    name: &'static str,
+}
+
+impl CmdHandle {
+    const NONE: Self = CmdHandle { name: "" };
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Argument {
     pub name: &'static str,
-    pub short_name: &'static str,
+    pub short_name: Option<char>,
     pub description: &'static str,
     pub default: Value,
     pub value: Value,
@@ -215,7 +231,7 @@ impl TinyArgs {
             active_cmd: None,
         };
 
-        let _ = res.define_option_bool("help", "h", false, "Display this help message");
+        let _ = res.define_option_bool("help", 'h', false, "Display this help message");
         res
     }
 
@@ -257,7 +273,7 @@ impl TinyArgs {
     pub fn define_option_bool(
         &mut self,
         name: &'static str,
-        short_name: &'static str,
+        short_name: impl Into<Option<char>>,
         default_value: bool,
         description: &'static str,
     ) -> OptHandle<bool> {
@@ -274,7 +290,7 @@ impl TinyArgs {
     pub fn define_option_num(
         &mut self,
         name: &'static str,
-        short_name: &'static str,
+        short_name: impl Into<Option<char>>,
         default_value: impl Into<f64>,
         description: &'static str,
     ) -> OptHandle<f64> {
@@ -296,7 +312,7 @@ impl TinyArgs {
     pub fn define_option_txt(
         &mut self,
         name: &'static str,
-        short_name: &'static str,
+        short_name: impl Into<Option<char>>,
         default_value: &str,
         description: &'static str,
     ) -> OptHandle<String> {
@@ -317,13 +333,13 @@ impl TinyArgs {
     fn define_argument(
         &mut self,
         name: &'static str,
-        short_name: &'static str,
+        short_name: impl Into<Option<char>>,
         default_value: Value,
         description: &'static str,
     ) {
         let arg = Argument {
             name,
-            short_name,
+            short_name: short_name.into(),
             description,
             value: default_value.clone(),
             default: default_value,
@@ -337,7 +353,7 @@ impl TinyArgs {
     pub fn get_option<T: FromValue>(&self, opt_handle: OptHandle<T>) -> T {
         let val = &self.find_argument(opt_handle.name).value;
 
-        T::from_value(&val).unwrap_or_else(|| {
+        T::from_value(val).unwrap_or_else(|| {
             panic!(
                 "type mismatch for argument {} when converting from {:?} to {}",
                 opt_handle.name,
@@ -391,29 +407,41 @@ impl TinyArgs {
 
         // We derive the program name if none was defined by the user
         if self.program_name.is_empty() {
-            let split: Vec<&str> = input_name.split(|c| c == '\\' || c == '/').collect();
+            let split: Vec<&str> = input_name.split(|c| "\\/".contains(c)).collect();
 
             self.program_name = split
                 .last()
                 .map_or("program_name".to_owned(), |s| s.to_string())
         }
 
+        // Iter though the arguments
         for input in args_iter {
-            // Trimming - or -- prefixes
-            let trimmed_input = input.trim_start_matches('-').to_owned();
+            let mut trimmed_input = input.to_owned();
+            let mut prefix_dash_count = 0;
+
+            // Trimming - or -- prefixes and counting the dashes
+            for _ in 0..2 {
+                if let Some(trimmed) = trimmed_input.strip_prefix('-') {
+                    prefix_dash_count += 1;
+                    trimmed_input = trimmed.to_owned();
+                } else {
+                    break;
+                }
+            }
+
             if trimmed_input.is_empty() {
-                return Err(Error::Parse("Invalid argument starting with -".to_owned()));
+                return Err(Error::Parse("Invalid argument prefixed by '-'".to_owned()));
             }
 
             // Parsing command or va_arg
-            if &trimmed_input == input {
+            // No - or -- prefix
+            if prefix_dash_count == 0 {
                 // Argument was not prefixed with - or --
                 if let Some(cmd) = self.cmds.get_mut(&trimmed_input)
                     && self.active_cmd.is_none()
                 {
                     // No command was registered, and command is valid
                     self.active_cmd = Some(cmd.clone());
-                    // TODO Do something about help?
                     //
                 } else if self.active_cmd.is_some() || self.cmds.is_empty() {
                     // Va args
@@ -430,7 +458,7 @@ impl TinyArgs {
 
             // Try splitting arg=value into separate parts
             //
-            // If value is not present, then the value string stays empty.
+            // If value is not present, then the value string stays empty
             if let Some((left, right)) = input_arg.split_once('=') {
                 if left.is_empty() {
                     return Err(Error::Parse(format!("Argument missing before ={}", right)));
@@ -443,14 +471,62 @@ impl TinyArgs {
                 input_arg = left.to_owned();
             }
 
+            // We don't allow grouped short options with value assignments: e.g. -abc=10
+            if prefix_dash_count == 1 && input_arg.chars().count() > 1 && !input_val.is_empty() {
+                return Err(Error::Parse(format!(
+                    "Grouped options cannot have assigned values: '-{input_arg}={input_val}'"
+                )));
+            }
+
             // We catch help option flags and display it immediately
             if input_arg == "help" || input_arg == "h" {
                 self.print_help_and_exit(0);
             }
 
+            // Grouped short option: -abc
+            // We know that value is empty since we validated above
+            if prefix_dash_count == 1 && input_arg.chars().count() > 1 {
+                // We iterate though all characters part of the short name arg combo
+                for short_name in input_arg.chars() {
+                    // Auto help print
+                    if short_name == 'h' {
+                        self.print_help_and_exit(0);
+                    }
+
+                    let found_arg = self.opts.iter_mut().find_map(|(_, a)| {
+                        if Some(short_name) == a.short_name {
+                            Some(a)
+                        } else {
+                            None
+                        }
+                    });
+
+                    // Verify if arg is defined
+                    if let Some(argument) = found_arg {
+                        argument.was_set = true;
+                        // Only boolean options can be part of groups
+                        if matches!(argument.value, Value::Bool(_)) {
+                            argument.value = Value::Bool(true)
+                        } else {
+                            return Err(Error::Parse(format!(
+                                "Only boolean type options can be part of grouped options: '-{input_arg}', option: '{short_name}', '{}'",
+                                argument.name
+                            )));
+                        }
+                    } else {
+                        return Err(Error::UnknownOpt(short_name.into()));
+                    }
+                }
+
+                continue;
+            }
+
             // Find the argument against user registered ones
             let found_arg = self.opts.iter_mut().find_map(|(_, a)| {
-                if input_arg == a.name || input_arg == a.short_name {
+                if (prefix_dash_count == 2 && input_arg == a.name)
+                    || (prefix_dash_count == 1
+                        && input_arg == a.short_name.unwrap_or(' ').to_string())
+                {
                     Some(a)
                 } else {
                     None
@@ -463,9 +539,14 @@ impl TinyArgs {
                 if input_val.is_empty() {
                     if matches!(argument.value, Value::Bool(_)) {
                         argument.value = Value::Bool(true)
+                    } else {
+                        return Err(Error::Parse(format!(
+                            "No value specified for option: '{}'",
+                            argument.name
+                        )));
                     }
                 }
-                // Options/flags with explicit value assignment arg=val
+                // Options with explicit value assignment arg=val
                 else {
                     argument.value = match argument.value {
                         Value::Txt(_) => Value::Txt(input_val),
@@ -575,8 +656,8 @@ Help:
             let name = "--".to_owned() + arg.name;
 
             let short_name = {
-                if !arg.short_name.is_empty() {
-                    "-".to_owned() + arg.short_name + ", "
+                if let Some(short_name) = arg.short_name {
+                    "-".to_owned() + &short_name.to_string() + ", "
                 } else {
                     "".to_string()
                 }
@@ -658,19 +739,4 @@ Help:
         println!("{}", self.get_help_text());
         std::process::exit(exit_code);
     }
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub struct OptHandle<T> {
-    name: &'static str,
-    _p: PhantomData<T>,
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub struct CmdHandle {
-    name: &'static str,
-}
-
-impl CmdHandle {
-    const NONE: Self = CmdHandle { name: "" };
 }

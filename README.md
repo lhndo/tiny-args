@@ -1,13 +1,14 @@
 A tiny command line argument parser with automatic help generation, and argument validation.
 
 - Inputs are categorized as `commands`, `options`, and `va args`.
-- Commands and va args have no prefixes. First argument of such kind is stored as the command, and the rest into a va_args "bucket", which can be retrived with `get_va_args()`.
-- Options/flags are defined with the `-` or `--` prefixes.
+- Options are defined with the `-` or `--` prefixes.
 - These can hold values representing booleans, numbers and text values, (stored internally as bool, f64 and Strings).
-- Arguments with values are strictly defined with the equal sign `=` like: `--arg=value`.
+- Boolean short name options can be set as groups. E.g.: `-abc`
+- Arguments with values are strictly defined by using the equal sign `=`, i.e. `--arg=value`.
+- Commands and va args have no dash prefix. First argument of such kind is stored as the command, and the rest into a va_args "bucket", which can be retrived with `get_va_args()`.
 - Help sections such as description, usage, and examples can be redefined if needed using the
   provided functions: `define_help_...()`.
-- The help call is hard coded.
+- The help call (-h --help) is hard coded during argument parsing.
 
 ## Example
 
@@ -27,9 +28,9 @@ fn main() -> ExitCode {
     let list = args.define_command("list", "List vargs");
     let version = args.define_command("version", "Display version");
 
-    let name = args.define_option_txt("name", "", "test", "A name of something");
-    let context = args.define_option_num("context", "c", 4, "Context lines");
-    let verbose = args.define_option_bool("verbose", "v", false, "Verbose mode");
+    let name = args.define_option_txt("name", None, "test", "A name of something");
+    let context = args.define_option_num("context", 'c', 4, "Context lines");
+    let verbose = args.define_option_bool("verbose", 'v', false, "Verbose mode");
 
     if let Err(e) = args.parse_arguments() {
         eprintln!("Error: {e}");

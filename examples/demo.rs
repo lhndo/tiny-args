@@ -13,9 +13,9 @@ fn main() -> ExitCode {
     let list = args.define_command("list", "List vargs");
     let version = args.define_command("version", "Display version");
 
-    let name = args.define_option_txt("name", "", "test", "A name of something");
-    let context = args.define_option_num("context", "c", 4, "Context lines");
-    let verbose = args.define_option_bool("verbose", "v", false, "Verbose mode");
+    let name = args.define_option_txt("name", None, "test", "A name of something");
+    let context = args.define_option_num("context", 'c', 4, "Context lines");
+    let verbose = args.define_option_bool("verbose", 'v', false, "Verbose mode");
 
     if let Err(e) = args.parse_arguments() {
         eprintln!("Error: {e}");
