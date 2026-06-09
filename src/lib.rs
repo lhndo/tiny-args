@@ -137,36 +137,38 @@ impl Value {
     }
 }
 
-pub trait FromValue: Sized {
-    fn from_value(v: &Value) -> Option<Self>;
-}
+impl TryFrom<Value> for bool {
+    type Error = &'static str;
 
-impl FromValue for bool {
-    fn from_value(v: &Value) -> Option<Self> {
-        if let Value::Bool(b) = v {
-            Some(*b)
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        if let Value::Bool(v) = value {
+            Ok(v)
         } else {
-            None
+            Err("parsing bool")
         }
     }
 }
 
-impl FromValue for f64 {
-    fn from_value(v: &Value) -> Option<Self> {
-        if let Value::Num(n) = v {
-            Some(*n)
+impl TryFrom<Value> for f64 {
+    type Error = &'static str;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        if let Value::Num(v) = value {
+            Ok(v)
         } else {
-            None
+            Err("parsing num")
         }
     }
 }
 
-impl FromValue for String {
-    fn from_value(v: &Value) -> Option<Self> {
-        if let Value::Txt(s) = v {
-            Some(s.clone())
+impl TryFrom<Value> for String {
+    type Error = &'static str;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        if let Value::Txt(v) = value {
+            Ok(v)
         } else {
-            None
+            Err("parsing string")
         }
     }
 }
@@ -350,10 +352,10 @@ impl TinyArgs {
 
     /// Get the option's value from the stored handle
     #[must_use]
-    pub fn get_option<T: FromValue>(&self, opt_handle: OptHandle<T>) -> T {
+    pub fn get_option<T: TryFrom<Value>>(&self, opt_handle: OptHandle<T>) -> T {
         let val = &self.find_argument(opt_handle.name).value;
 
-        T::from_value(val).unwrap_or_else(|| {
+        T::try_from(val.clone()).unwrap_or_else(|_| {
             panic!(
                 "type mismatch for argument {} when converting from {:?} to {}",
                 opt_handle.name,
