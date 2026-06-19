@@ -7,7 +7,7 @@ fn main() -> ExitCode {
     // Help definitions:
     ta.define_program_name("demo");
     ta.define_description("A demo program for tinyargs.");
-    ta.define_usage("[OPTIONS] [COMMAND] [ARGS]...");
+    ta.define_usage("[COMMAND] [OPTIONS] [ARGS]...");
     ta.define_example("--name=test some/path/  - Sets some values");
 
     // Global Options

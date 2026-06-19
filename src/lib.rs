@@ -3,7 +3,7 @@ A tiny command line argument parser with automatic help generation, and argument
 
 - Inputs are categorized as `commands`, `options`, and `va args`.
 - Options Flags are defined with the `-` or `--` prefixes.
-- Options Flags can be both global, and command specific (see full example).
+- Options Flags can be both global, and command specific.
 - These can hold values representing booleans, numbers and text values, (stored internally as bool, f64 and Strings).
 - Short name option groups are supported for boolean type values. E.g.: `-abc`
 - Arguments with values are strictly defined by using the equal sign `=`, i.e. `--arg=value`.
@@ -92,7 +92,7 @@ fn main() -> ExitCode {
     // Help definitions:
     ta.define_program_name("demo");
     ta.define_description("A demo program for tinyargs.");
-    ta.define_usage("[OPTIONS] [COMMAND] [ARGS]...");
+    ta.define_usage("[COMMAND] [OPTIONS] [ARGS]...");
     ta.define_example("--name=test some/path/  - Sets some values");
 
     // Global Options
@@ -156,7 +156,7 @@ A demo program for tinyargs.
 
 Help
 
-  Usage: demo [OPTIONS] [COMMAND] [ARGS]...
+  Usage: demo [COMMAND] [OPTIONS] [ARGS]...
 
   Commands:
 
@@ -1105,8 +1105,8 @@ fn generate_help_usage_list(
     has_commands: bool,
 ) -> String {
     if usage.is_empty() {
-        let options = if has_options { "[OPTIONS] " } else { "" };
         let commands = if has_commands { "[COMMANDS] " } else { "" };
+        let options = if has_options { "[OPTIONS] " } else { "" };
         format!("  Usage: {program_name} {}{}[ARGS]...", options, commands,)
     } else {
         format!("  Usage: {program_name} {usage}")
