@@ -6,7 +6,7 @@ fn main() -> ExitCode {
 
     // Help definitions:
     ta.define_program_name("demo");
-    ta.define_description("A demo program for TinyArgs");
+    ta.define_description("A demo program for tinyargs.");
     ta.define_usage("[OPTIONS] [COMMAND] [ARGS]...");
     ta.define_example("--name=test some/path/  - Sets some values");
 
@@ -16,19 +16,22 @@ fn main() -> ExitCode {
     let verbose = ta.define_option_bool("verbose", 'v', false, "Verbose mode");
 
     // Commands
-    let list = ta.define_command("list", "List vargs");
     let version = ta.define_command("version", "Display version");
+    let list = ta.define_command("list", "List items");
 
     // Command Options
     let list_all = ta
         .command(list)
-        .define_option_bool("all", 'a', false, "List All");
+        .define_option_bool("user", 'u', false, "List user items");
     let list_max = ta
         .command(list)
         .define_option_num("max", 'm', 0, "Maximum items");
 
-    ta.command(list).define_example("list --max=10");
-    ta.command(list).define_example("list --all ");
+    // Command Examples
+    ta.command(list)
+        .define_example("list --max=10 - Lists max 10 items");
+    ta.command(list)
+        .define_example("list --user   - Lists user Items");
 
     // Parse
     if let Err(e) = ta.parse_arguments() {

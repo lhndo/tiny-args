@@ -2,74 +2,168 @@
 A tiny command line argument parser with automatic help generation, and argument validation.
 
 - Inputs are categorized as `commands`, `options`, and `va args`.
-- Options are defined with the `-` or `--` prefixes.
+- Options Flags are defined with the `-` or `--` prefixes.
+- Options Flags can be both global, and command specific (see full example).
 - These can hold values representing booleans, numbers and text values, (stored internally as bool, f64 and Strings).
-- Boolean short name options can be set as groups. E.g.: `-abc`
+- Short name option groups are supported for boolean type values. E.g.: `-abc`
 - Arguments with values are strictly defined by using the equal sign `=`, i.e. `--arg=value`.
 - Commands and va args have no dash prefix. First argument of such kind is stored as the command, and the rest into a va_args "bucket", which can be retrived with `get_va_args()`.
 - Help sections such as description, usage, and examples can be redefined if needed using the
-  provided functions: `define_help_...()`.
+  provided functions: `define_...()`.
 - The help call (-h --help) is hard coded during argument parsing.
 
 
- ## Example
-```
+ ## Minimal Example
+```rust
 use std::process::ExitCode;
 use tiny_args::*;
 
 fn main() -> ExitCode {
-    let mut args = TinyArgs::new();
+    let mut ta = TinyArgs::new();
 
-    // Optional help definitions:
-    args.define_help_program_name("demo");
-    args.define_help_description("A demo program for TinyArgs");
-    args.define_help_usage("[OPTIONS] [COMMAND] [ARGS]...");
-    args.define_help_example("--name=test some/path/  - Sets some values");
+    // Global Options
+    let name = ta.define_option_txt("name", None, "test", "A name of something");
+    let context = ta.define_option_num("context", 'c', 4, "Context lines");
+    let verbose = ta.define_option_bool("verbose", 'v', false, "Verbose mode");
 
-    let list = args.define_command("list", "List vargs");
-    let version = args.define_command("version", "Display version");
+    // Commands
+    let list = ta.define_command("list", "List items");
+    let version = ta.define_command("version", "Display version");
 
-    let name = args.define_option_txt("name", None, "test", "A name of something");
-    let context = args.define_option_num("context", 'c', 4, "Context lines");
-    let verbose = args.define_option_bool("verbose", 'v', false, "Verbose mode");
-
-    if let Err(e) = args.parse_arguments() {
+    // Parse
+    if let Err(e) = ta.parse_arguments() {
         eprintln!("Error: {e}");
         return ExitCode::FAILURE;
     }
 
-    println!("name: {}", args.get_option(name));
-    println!("context: {}", args.get_option(context));
-    println!("verbose: {}", args.get_option(verbose));
+    // Run
+    println!("name:    {}", ta.get_option(name));
+    println!("context: {}", ta.get_option(context));
+    println!("verbose: {}", ta.get_option(verbose));
 
-    if args.get_command() == version {
+    if ta.get_active_command() == version {
         println!("Version: 1.2.3.4");
     }
 
-    if args.get_command() == list {
-        for arg in args.get_va_args() {
-            println!("{arg}");
+    if ta.get_active_command() == list {
+        for arg in ta.get_va_args() {
+            print!("|{arg}");
         }
     }
 
     ExitCode::SUCCESS
-  }
+}
  ```
-## Generated Help
+
+### Minimal Generated Help
 
 ```none
->demo_program --help
+>demo_minimal --help
 
-A demo program for TinyArgs
+Help
 
-Help:
+  Usage: demo_minimal [OPTIONS] [COMMANDS] [ARGS]...
+
+  Commands:
+
+      list                     List items
+      version                  Display version
+
+  For more information run: [COMMAND] --help
+
+  Options:
+
+    -c, --context=<context>    Context lines [Default: 4]
+    -h, --help                 Display this help message
+        --name=<name>          A name of something [Default: test]
+    -v, --verbose              Verbose mode
+```
+
+
+## Full Example
+
+```rust
+use std::process::ExitCode;
+use tiny_args::*;
+
+fn main() -> ExitCode {
+    let mut ta = TinyArgs::new();
+
+    // Help definitions:
+    ta.define_program_name("demo");
+    ta.define_description("A demo program for tinyargs.");
+    ta.define_usage("[OPTIONS] [COMMAND] [ARGS]...");
+    ta.define_example("--name=test some/path/  - Sets some values");
+
+    // Global Options
+    let name = ta.define_option_txt("name", None, "test", "A name of something");
+    let context = ta.define_option_num("context", 'c', 4, "Context lines");
+    let verbose = ta.define_option_bool("verbose", 'v', false, "Verbose mode");
+
+    // Commands
+    let version = ta.define_command("version", "Display version");
+    let list = ta.define_command("list", "List items");
+
+    // Command Options
+    let list_all = ta
+        .command(list)
+        .define_option_bool("user", 'u', false, "List user items");
+    let list_max = ta
+        .command(list)
+        .define_option_num("max", 'm', 0, "Maximum items");
+
+    // Command Examples
+    ta.command(list)
+        .define_example("list --max=10 - Lists max 10 items");
+    ta.command(list)
+        .define_example("list --user   - Lists user Items");
+
+    // Parse
+    if let Err(e) = ta.parse_arguments() {
+        eprintln!("Error: {e}");
+        return ExitCode::FAILURE;
+    }
+
+    // Run
+    println!("name:    {}", ta.get_option(name));
+    println!("context: {}", ta.get_option(context));
+    println!("verbose: {}", ta.get_option(verbose));
+
+    if ta.get_active_command() == version {
+        println!("Version: 1.2.3.4");
+    }
+
+    if ta.get_active_command() == list {
+        println!("List all: {}", ta.get_option(list_all));
+        println!("List max: {}", ta.get_option(list_max));
+        print!("Arguments: ");
+
+        for arg in ta.get_va_args() {
+            print!("|{arg}");
+        }
+    }
+
+    ExitCode::SUCCESS
+}
+```
+
+### Generated Help
+
+```none
+>demo_minimal --help
+
+A demo program for tinyargs.
+
+Help
 
   Usage: demo [OPTIONS] [COMMAND] [ARGS]...
 
   Commands:
 
-      list                     List args
+      list                     List items
       version                  Display version
+
+  For more information run: [COMMAND] --help
 
   Options:
 
@@ -81,7 +175,10 @@ Help:
 Examples:
 
   demo --name=test some/path/  - Sets some values
+
 ```
+
+
 */
 
 use std::any::type_name;
@@ -95,7 +192,7 @@ use std::str::ParseBoolError;
 //                                         Error
 // ——————————————————————————————————————————————————————————————————————————————————————
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Error {
     ParseValue { value: String, arg: String },
     ParseArgument(String),
@@ -244,8 +341,6 @@ impl Command {
         }
     }
 
-    // TODO: Check for option name overlap with global options on registration
-
     /// Define the program description for the help section
     pub fn define_description(&mut self, description: &'static str) {
         self.description = description.into();
@@ -272,15 +367,41 @@ impl Command {
         default_value: Value,
         description: &'static str,
     ) {
+        let sn: Option<char> = short_name.into();
+
+        // Validating short name uniqueness
+        if let Some(sn) = sn {
+            let existing = self.options.iter().find_map(|e| {
+                if e.1.short_name.as_ref() == Some(&sn) {
+                    Some(true)
+                } else {
+                    None
+                }
+            });
+
+            debug_assert!(
+                existing.is_none(),
+                "Error: Option short name '-{}' already taken!",
+                sn
+            );
+        }
+
         let arg = OptionFlag {
             name,
-            short_name: short_name.into(),
+            short_name: sn,
             description,
             value: default_value.clone(),
             default: default_value,
             was_set: false,
         };
-        self.options.insert(name.to_owned(), arg);
+
+        let res = self.options.insert(name.to_owned(), arg);
+
+        debug_assert!(
+            res.is_none(),
+            "Error: Option name '--{}' already taken!",
+            name
+        );
     }
 
     /// Define a boolean option
@@ -417,7 +538,12 @@ impl TinyArgs {
                 examples: Vec::new(),
                 options: HashMap::new(),
             };
-            self.commands.insert(name.to_owned(), arg);
+            let res = self.commands.insert(name.to_owned(), arg);
+            debug_assert!(
+                res.is_none(),
+                "Error: Command name '{}' already taken!",
+                name
+            );
 
             CommandHandle { name }
         }
@@ -736,7 +862,7 @@ impl TinyArgs {
             }
         }
 
-        // ——————————————————————————————————————— Help ———————————————————————————————————————
+        // ——————————————————————————————————————— Help Trigger ———————————————————————————————————————
 
         // Check for help argument and print help
         if self.get_option(OptionHandle::<bool>::HELP) {
@@ -810,13 +936,11 @@ impl TinyArgs {
         let commands = generate_help_command_list(&self.commands);
         let options = generate_help_option_list(&self.root.options, "Options");
 
-        // ——————————————————————————————————————— Help ———————————————————————————————————————
-
         format!(
             "
 {description}
 
-Help:
+Help
 
 {usage}
 {commands} {options} {examples}
@@ -841,15 +965,14 @@ Help:
         let command_options = generate_help_option_list(&command.options, "Command Options");
         let global_options = generate_help_option_list(&self.root.options, "Global Options");
 
-        // ——————————————————————————————————————— Help ———————————————————————————————————————
-
         format!(
             "
+Help
+
 Command: 
 
-   {command_name} - {command_description}
+  {command_name} - {command_description}
 
-Help:
 
 {usage}
 {command_options} {global_options} {examples}
@@ -893,7 +1016,9 @@ fn generate_help_command_list(commands: &HashMap<String, Command>) -> String {
     }
 
     if !cmds_help.is_empty() {
-        cmds_help = "\n  Commands:\n\n".to_string() + &cmds_help
+        cmds_help = "\n  Commands:\n\n".to_string()
+            + &cmds_help
+            + "\n  For more information run: [COMMAND] --help\n"
     };
 
     cmds_help
