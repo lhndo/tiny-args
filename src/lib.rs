@@ -42,11 +42,11 @@ fn main() -> ExitCode {
     println!("context: {}", args.get_option(context));
     println!("verbose: {}", args.get_option(verbose));
 
-    if args.command() == version {
+    if args.get_command() == version {
         println!("Version: 1.2.3.4");
     }
 
-    if args.command() == list {
+    if args.get_command() == list {
         for arg in args.get_va_args() {
             println!("{arg}");
         }
@@ -55,7 +55,6 @@ fn main() -> ExitCode {
     ExitCode::SUCCESS
   }
  ```
-
 ## Generated Help
 
 ```none
@@ -102,6 +101,7 @@ pub enum Error {
     ParseArgument(String),
     UnknownOpt(String),
     UnknownCmd(String),
+    Command(String),
 }
 
 impl Display for Error {
@@ -113,6 +113,7 @@ impl Display for Error {
             Error::UnknownOpt(s) => write!(f, "Unknown option: {}", s),
             Error::UnknownCmd(s) => write!(f, "Unknown command: {}", s),
             Error::ParseArgument(s) => f.write_str(s),
+            Error::Command(s) => f.write_str(s),
         }
     }
 }
@@ -188,7 +189,16 @@ impl TryFrom<Value> for String {
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct OptionHandle<T> {
     name: &'static str,
+    cmd_root: CommandHandle,
     _p: PhantomData<T>,
+}
+
+impl<T> OptionHandle<T> {
+    pub const HELP: OptionHandle<bool> = OptionHandle {
+        name: "help",
+        cmd_root: CommandHandle::NONE,
+        _p: PhantomData::<bool>,
+    };
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -206,164 +216,56 @@ impl CommandHandle {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct OptionFlag {
-    pub name: &'static str,
-    pub short_name: Option<char>,
-    pub description: &'static str,
-    pub default: Value,
-    pub value: Value,
-    pub was_set: bool,
+    name: &'static str,
+    short_name: Option<char>,
+    description: &'static str,
+    default: Value,
+    value: Value,
+    was_set: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct Command {
-    pub name: &'static str,
-    pub description: &'static str,
+    name: &'static str,
+    description: &'static str,
+    usage: &'static str,
+    examples: Vec<String>,
+    options: HashMap<String, OptionFlag>,
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
-pub struct CommandB {
-    pub name: String,
-    pub description: String,
-    pub usage: String,
-    pub examples: Vec<String>,
-    pub options: HashMap<String, OptionFlag>,
-}
-
-// ——————————————————————————————————————————————————————————————————————————————————————
-//                                         Args
-// ——————————————————————————————————————————————————————————————————————————————————————
-
-#[derive(Debug, Default, Clone, PartialEq)]
-pub struct TinyArgs {
-    pub program_name: String,
-    pub description: String,
-    pub usage: String,
-    pub examples: Vec<String>,
-    pub commands: HashMap<String, Command>,
-    pub options: HashMap<String, OptionFlag>,
-    pub va_args: Vec<String>,
-    pub active_cmd: Option<Command>,
-}
-
-impl TinyArgs {
-    /// Create a TinyArgs instance
-    #[must_use]
+impl Command {
     pub fn new() -> Self {
-        let mut res = Self {
-            program_name: String::new(),
-            description: String::new(),
-            usage: String::new(),
-            examples: vec![],
-            commands: HashMap::new(),
+        Self {
+            name: "",
+            description: "",
+            usage: "",
+            examples: Vec::new(),
             options: HashMap::new(),
-            va_args: vec![],
-            active_cmd: None,
-        };
-
-        let _ = res.define_option_bool("help", 'h', false, "Display this help message");
-        res
+        }
     }
 
-    /// Define the program name displayed in the help section
-    /// If not defined, the program name is automatically derived from the command line
-    pub fn define_help_program_name(&mut self, name: &str) {
-        self.program_name = name.to_owned();
-    }
+    // TODO: Check for option name overlap with global options on registration
 
     /// Define the program description for the help section
-    pub fn define_help_description(&mut self, description: &str) {
+    pub fn define_description(&mut self, description: &'static str) {
         self.description = description.into();
     }
 
     /// Define program usage for the help section
     /// The program name gets automatically prefixed,
-    pub fn define_help_usage(&mut self, usage: &str) {
+    pub fn define_usage(&mut self, usage: &'static str) {
         self.usage = usage.into();
     }
 
     /// Define examples in for the help section
     /// You can this function multiple times to add more execution examples
     /// The program name gets automatically prefixed
-    pub fn define_help_example(&mut self, examples: &str) {
+    pub fn define_example(&mut self, examples: &str) {
         self.examples.push(examples.to_string());
     }
 
-    /// Define a command
-    #[must_use]
-    pub fn define_command(
-        &mut self,
-        name: &'static str,
-        description: &'static str,
-    ) -> CommandHandle {
-        let arg = Command { name, description };
-        self.commands.insert(name.to_owned(), arg);
-
-        CommandHandle { name }
-    }
-
-    /// Define a boolean option
-    #[must_use]
-    pub fn define_option_bool(
-        &mut self,
-        name: &'static str,
-        short_name: impl Into<Option<char>>,
-        default_value: bool,
-        description: &'static str,
-    ) -> OptionHandle<bool> {
-        self.define_option_internal(name, short_name, Value::Bool(default_value), description);
-
-        OptionHandle {
-            name,
-            _p: PhantomData::<bool>,
-        }
-    }
-
-    /// Define a numerical option
-    #[must_use]
-    pub fn define_option_num(
-        &mut self,
-        name: &'static str,
-        short_name: impl Into<Option<char>>,
-        default_value: impl Into<f64>,
-        description: &'static str,
-    ) -> OptionHandle<f64> {
-        self.define_option_internal(
-            name,
-            short_name,
-            Value::Num(default_value.into()),
-            description,
-        );
-
-        OptionHandle {
-            name,
-            _p: PhantomData::<f64>,
-        }
-    }
-
-    /// Define a text option
-    #[must_use]
-    pub fn define_option_txt(
-        &mut self,
-        name: &'static str,
-        short_name: impl Into<Option<char>>,
-        default_value: &str,
-        description: &'static str,
-    ) -> OptionHandle<String> {
-        self.define_option_internal(
-            name,
-            short_name,
-            Value::Txt(default_value.into()),
-            description,
-        );
-
-        OptionHandle {
-            name,
-            _p: PhantomData::<String>,
-        }
-    }
-
-    /// Internal
-    fn define_option_internal(
+    /// Internal - Add an option to list
+    fn add_option(
         &mut self,
         name: &'static str,
         short_name: impl Into<Option<char>>,
@@ -379,6 +281,185 @@ impl TinyArgs {
             was_set: false,
         };
         self.options.insert(name.to_owned(), arg);
+    }
+
+    /// Define a boolean option
+    #[must_use]
+    pub fn define_option_bool(
+        &mut self,
+        name: &'static str,
+        short_name: impl Into<Option<char>>,
+        default_value: bool,
+        description: &'static str,
+    ) -> OptionHandle<bool> {
+        self.add_option(name, short_name, Value::Bool(default_value), description);
+
+        OptionHandle {
+            name,
+            cmd_root: CommandHandle { name: self.name },
+            _p: PhantomData::<bool>,
+        }
+    }
+
+    /// Define a numerical option
+    #[must_use]
+    pub fn define_option_num(
+        &mut self,
+        name: &'static str,
+        short_name: impl Into<Option<char>>,
+        default_value: impl Into<f64>,
+        description: &'static str,
+    ) -> OptionHandle<f64> {
+        self.add_option(
+            name,
+            short_name,
+            Value::Num(default_value.into()),
+            description,
+        );
+
+        OptionHandle {
+            name,
+            cmd_root: CommandHandle { name: self.name },
+            _p: PhantomData::<f64>,
+        }
+    }
+
+    /// Define a text option
+    #[must_use]
+    pub fn define_option_txt(
+        &mut self,
+        name: &'static str,
+        short_name: impl Into<Option<char>>,
+        default_value: &str,
+        description: &'static str,
+    ) -> OptionHandle<String> {
+        self.add_option(
+            name,
+            short_name,
+            Value::Txt(default_value.into()),
+            description,
+        );
+
+        OptionHandle {
+            name,
+            cmd_root: CommandHandle { name: self.name },
+            _p: PhantomData::<String>,
+        }
+    }
+}
+
+// ——————————————————————————————————————————————————————————————————————————————————————
+//                                         Args
+// ——————————————————————————————————————————————————————————————————————————————————————
+
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct TinyArgs {
+    pub program_name: String,
+    pub root: Command,
+    pub commands: HashMap<String, Command>,
+    pub va_args: Vec<String>,
+    pub active_cmd: Option<CommandHandle>,
+}
+
+impl TinyArgs {
+    //
+    /// Create a TinyArgs instance
+    #[must_use]
+    pub fn new() -> Self {
+        let mut res = Self {
+            program_name: String::new(),
+            root: Command::new(),
+            commands: HashMap::new(),
+            va_args: vec![],
+            active_cmd: None,
+        };
+
+        let _ = res.define_option_bool("help", 'h', false, "Display this help message");
+        res
+    }
+
+    /// Define the program name displayed in the help section
+    /// If not defined, the program name is automatically derived from the command line
+    pub fn define_program_name(&mut self, name: &str) {
+        self.program_name = name.to_owned();
+    }
+
+    /// Define the program description for the help section
+    pub fn define_description(&mut self, description: &'static str) {
+        self.root.define_description(description);
+    }
+
+    /// Define program usage for the help section
+    /// The program name gets automatically prefixed,
+    pub fn define_usage(&mut self, usage: &'static str) {
+        self.root.define_usage(usage);
+    }
+
+    /// Define examples in for the help section
+    /// You can this function multiple times to add more execution examples
+    /// The program name gets automatically prefixed
+    pub fn define_example(&mut self, example: &str) {
+        self.root.define_example(example);
+    }
+
+    /// Define a command
+    #[must_use]
+    pub fn define_command(
+        &mut self,
+        name: &'static str,
+        description: &'static str,
+    ) -> CommandHandle {
+        {
+            let arg = Command {
+                name,
+                description,
+                usage: "",
+                examples: Vec::new(),
+                options: HashMap::new(),
+            };
+            self.commands.insert(name.to_owned(), arg);
+
+            CommandHandle { name }
+        }
+    }
+
+    /// Define a boolean option
+    #[must_use]
+    pub fn define_option_bool(
+        &mut self,
+        name: &'static str,
+        short_name: impl Into<Option<char>>,
+        default_value: bool,
+        description: &'static str,
+    ) -> OptionHandle<bool> {
+        self.root
+            .define_option_bool(name, short_name, default_value, description)
+    }
+
+    /// Define a numerical option
+    #[must_use]
+    pub fn define_option_num(
+        &mut self,
+        name: &'static str,
+        short_name: impl Into<Option<char>>,
+        default_value: impl Into<f64>,
+        description: &'static str,
+    ) -> OptionHandle<f64> {
+        self.root
+            .define_option_num(name, short_name, default_value, description)
+    }
+
+    /// Define a text option
+    #[must_use]
+    pub fn define_option_txt(
+        &mut self,
+        name: &'static str,
+        short_name: impl Into<Option<char>>,
+        default_value: &str,
+        description: &'static str,
+    ) -> OptionHandle<String> {
+        self.root
+            .define_option_txt(name, short_name, default_value, description)
     }
 
     /// Get the option's value from the stored handle
@@ -401,18 +482,20 @@ impl TinyArgs {
     /// CmdHandle::NONE is returned if no command is set
     /// Example:
     ///  ```
-    ///      if args.command() == version {
+    ///      if ta.get_active_command() == version {
     ///          println!("Version: 1.2.3.4");
     ///      }
     ///  ```
-    pub fn command(&self) -> CommandHandle {
-        let name = self.active_cmd.as_ref().map_or_else(|| "", |c| c.name);
-
-        if name.is_empty() {
+    pub fn get_active_command(&self) -> CommandHandle {
+        if let Some(cmd) = self.active_cmd {
+            cmd
+        } else {
             return CommandHandle::NONE;
         }
+    }
 
-        CommandHandle { name }
+    pub fn command(&mut self, command: CommandHandle) -> &mut Command {
+        self.find_command_by_handle_mut(command)
     }
 
     /// This function MUST be run for the input arguments to be processed
@@ -420,7 +503,7 @@ impl TinyArgs {
     /// Call example:
     /// ```
     ///
-    ///    if let Err(e) = args.parse_arguments() {
+    ///    if let Err(e) = ta.parse_arguments() {
     ///        eprintln!("Error: {e}");
     ///        return ExitCode::FAILURE;
     ///    }
@@ -452,9 +535,9 @@ impl TinyArgs {
 
         // ——————————————————————————————————————— Iter Args ———————————————————————————————————————
         for arg in args_iter {
-            // Trimming - or -- prefixes and counting the dashes
             let mut arg = arg.to_owned();
             let mut prefix_dash_count = 0;
+            // Trimming - or -- prefixes and counting the dashes
             for _ in 0..2 {
                 if let Some(trimmed) = arg.strip_prefix('-') {
                     prefix_dash_count += 1;
@@ -470,29 +553,43 @@ impl TinyArgs {
                 ));
             }
 
-            // No - or -- prefix
-            // Parsing command or va_arg
+            // ——————————————————————————————————————— Commands ———————————————————————————————————————
+            // Parsing args with no - or -- prefixes
             if prefix_dash_count == 0 {
-                // Argument was not prefixed with - or --
-                if let Some(cmd) = self.commands.get_mut(&arg)
-                    && self.active_cmd.is_none()
-                {
-                    // No command was registered, and command is valid
-                    self.active_cmd = Some(cmd.clone());
-                    //
-                } else if self.active_cmd.is_some() || self.commands.is_empty() {
-                    // Va args
-                    self.va_args.push(arg); // We add it to the va args bucket
+                // Commands are defined
+                if !self.commands.is_empty() {
+                    // Known command
+                    if let Some(cmd) = self.commands.get(&arg) {
+                        if self.active_cmd.is_none() {
+                            // Register active command
+                            self.active_cmd = Some(CommandHandle { name: cmd.name });
+                        } else {
+                            return Err(Error::Command(format!(
+                                "Command \"{}\" was called before command \"{}\"",
+                                &self.active_cmd.as_ref().unwrap().name,
+                                arg
+                            )));
+                        }
+                        .to_owned()
+
+                    //Unknown command
+                    } else if self.active_cmd.is_none() {
+                        // Commands are defined, this is the first command input, but we don't recognise this specific one
+                        return Err(Error::UnknownCmd(arg));
+                    } else {
+                        // Active command preset, we push into the va args bucket
+                        self.va_args.push(arg);
+                    }
                 } else {
-                    // Commands are defined, this is the first command input, but we don't recognise this specific one
-                    return Err(Error::UnknownCmd(arg));
+                    // If no commands are defined, we push it straight to va args bucket
+                    self.va_args.push(arg);
                 }
                 continue; // Continue to next arg
             }
 
-            let mut arg_value = String::new();
+            // ——————————————————————————————————————— Arg with value; '=' ———————————————————————————————————————
 
-            // ——————————————————————————————————————— Arg with value '=' ———————————————————————————————————————
+            let mut arg_value = String::new();
 
             if let Some((left, right)) = arg.split_once('=') {
                 if left.is_empty() {
@@ -512,34 +609,20 @@ impl TinyArgs {
                 arg = left.to_owned();
             }
 
-            // ——————————————————————————————————————— Help ———————————————————————————————————————
-
-            // We catch help option flags and display it immediately
-            if arg == "help" || arg == "h" {
-                self.print_help_and_exit(0);
-            }
-
             // ——————————————————————————————————————— Grouped Option Flags ———————————————————————————————————————
 
-            // We don't allow grouped short options with value assignments: e.g. -abc=10
-            if prefix_dash_count == 1 && arg.chars().count() > 1 && !arg_value.is_empty() {
-                return Err(Error::ParseArgument(format!(
-                    "Grouped options cannot have assigned values: '-{arg}={arg_value}'"
-                )));
-            }
-
-            // Grouped short option: -abc
-            // We know that value is empty since we validated above
             if prefix_dash_count == 1 && arg.chars().count() > 1 {
+                if !arg_value.is_empty() {
+                    // We don't allow grouped short options with value assignments: e.g. -abc=10
+                    return Err(Error::ParseArgument(format!(
+                        "Grouped options cannot have assigned values: '-{arg}={arg_value}'"
+                    )));
+                }
+
                 // We iterate though all characters part of the short name arg combo
                 for short_name in arg.chars() {
-                    // Auto help print
-                    if short_name == 'h' {
-                        self.print_help_and_exit(0);
-                    }
-
-                    // Check if option flag is defined
-                    let found_arg = self.options.iter_mut().find_map(|(_, a)| {
+                    // Search global options
+                    let mut found_arg = self.root.options.iter_mut().find_map(|(_, a)| {
                         if Some(short_name) == a.short_name {
                             Some(a)
                         } else {
@@ -547,7 +630,22 @@ impl TinyArgs {
                         }
                     });
 
-                    // Verify if arg is valid
+                    // Search active command options
+                    if found_arg.is_none()
+                        && let Some(cmd_handle) = self.active_cmd
+                    {
+                        let command = self.find_command_by_handle_mut(cmd_handle);
+
+                        found_arg = command.options.iter_mut().find_map(|(_, a)| {
+                            if Some(short_name) == a.short_name {
+                                Some(a)
+                            } else {
+                                None
+                            }
+                        });
+                    }
+
+                    // Validate if arg is valid (bool)
                     if let Some(argument) = found_arg {
                         // Only boolean options can be part of groups
                         if matches!(argument.value, Value::Bool(_)) {
@@ -555,22 +653,25 @@ impl TinyArgs {
                             argument.was_set = true;
                         } else {
                             return Err(Error::ParseArgument(format!(
-                                "Only boolean type options can be part of grouped options: '-{arg}', option: '{short_name}', '{}'",
+                                "Only boolean type options can be part of grouped options: '-{arg}', option: '-{short_name}', '--{}'",
                                 argument.name
                             )));
                         }
                     } else {
-                        return Err(Error::UnknownOpt(short_name.into()));
+                        return Err(Error::UnknownOpt(format!(
+                            "'{}', part of: '-{}'",
+                            short_name, arg
+                        )));
                     }
                 }
 
                 continue;
             }
 
-            // ——————————————————————————————————————— Option Flag ———————————————————————————————————————
+            // ——————————————————————————————————————— Regular Option Flag ———————————————————————————————————————
 
-            // Check if option flag is defined
-            let found_arg = self.options.iter_mut().find_map(|(_, a)| {
+            // Check if global option flag is defined
+            let mut found_arg = self.root.options.iter_mut().find_map(|(_, a)| {
                 if (prefix_dash_count == 2 && arg == a.name)
                     || (prefix_dash_count == 1 && arg == a.short_name.unwrap_or(' ').to_string())
                 {
@@ -579,6 +680,24 @@ impl TinyArgs {
                     None
                 }
             });
+
+            // Search active command options
+            if found_arg.is_none()
+                && let Some(cmd_handle) = self.active_cmd
+            {
+                let command = self.find_command_by_handle_mut(cmd_handle);
+
+                found_arg = command.options.iter_mut().find_map(|(_, a)| {
+                    if (prefix_dash_count == 2 && arg == a.name)
+                        || (prefix_dash_count == 1
+                            && arg == a.short_name.unwrap_or(' ').to_string())
+                    {
+                        Some(a)
+                    } else {
+                        None
+                    }
+                });
+            }
 
             if let Some(argument) = found_arg {
                 argument.was_set = true;
@@ -617,15 +736,54 @@ impl TinyArgs {
             }
         }
 
+        // ——————————————————————————————————————— Help ———————————————————————————————————————
+
+        // Check for help argument and print help
+        if self.get_option(OptionHandle::<bool>::HELP) {
+            if let Some(cmd) = &self.active_cmd {
+                self.print_command_help_and_exit(cmd.name, 0);
+            } else {
+                self.print_help_and_exit(0);
+            }
+        }
+
         Ok(())
+    }
+
+    /// Internal - Acts as get, should not fail
+    fn find_command_by_handle(&self, cmd_handle: CommandHandle) -> &Command {
+        let name = cmd_handle.name;
+        self.commands
+            .get(name)
+            .unwrap_or_else(|| panic!("Could not find command: {name}"))
+    }
+
+    /// Internal - Acts as get, should not fail
+    fn find_command_by_handle_mut(&mut self, cmd_handle: CommandHandle) -> &mut Command {
+        let name = cmd_handle.name;
+        self.commands
+            .get_mut(name)
+            .unwrap_or_else(|| panic!("Could not find command: {name}"))
     }
 
     /// Internal - Acts as get, should not fail
     fn find_option_by_handle<T>(&self, opt_handle: OptionHandle<T>) -> &OptionFlag {
         let name = opt_handle.name;
-        self.options
-            .get(name)
-            .unwrap_or_else(|| panic!("Could not find argument: {name}"))
+
+        // Root option
+        if opt_handle.cmd_root == CommandHandle::NONE {
+            self.root
+                .options
+                .get(name)
+                .unwrap_or_else(|| panic!("Could not find option: {name}"))
+        } else {
+            // Command option
+            let command = self.find_command_by_handle(opt_handle.cmd_root);
+            command
+                .options
+                .get(name)
+                .unwrap_or_else(|| panic!("Could not find option: {name}"))
+        }
     }
 
     /// Find if an argument was explicitly set by the user
@@ -638,73 +796,20 @@ impl TinyArgs {
         self.va_args.iter()
     }
 
-    fn generate_help(&mut self) -> String {
-        //
-        // ——————————————————————————————————————— Description ———————————————————————————————————————
+    fn generate_help(&self) -> String {
+        let description = &self.root.description;
 
-        let description = &self.description;
+        let usage = generate_help_usage_list(
+            self.root.usage,
+            &self.program_name,
+            !self.root.options.is_empty(),
+            !self.commands.is_empty(),
+        );
 
-        // ——————————————————————————————————————— Usage ———————————————————————————————————————
+        let examples = generate_help_example_list(&self.root.examples, &self.program_name);
+        let commands = generate_help_command_list(&self.commands);
+        let options = generate_help_option_list(&self.root.options, "Options");
 
-        let usage = {
-            if self.usage.is_empty() {
-                let options = if !self.options.is_empty() {
-                    "[OPTIONS] "
-                } else {
-                    ""
-                };
-
-                let commands = if !self.commands.is_empty() {
-                    "[COMMANDS] "
-                } else {
-                    ""
-                };
-
-                format!(
-                    "  Usage: {program} {}{}[ARGS]...",
-                    options,
-                    commands,
-                    program = self.program_name
-                )
-            } else {
-                format!(
-                    "  Usage: {program} {}",
-                    self.usage,
-                    program = self.program_name
-                )
-            }
-        };
-
-        // ——————————————————————————————————————— Examples ———————————————————————————————————————
-
-        let examples = {
-            let mut res = String::new();
-
-            if !self.examples.is_empty() {
-                res = "\nExamples:\n\n".to_owned() + &res;
-                self.examples.iter().for_each(|s| {
-                    res.push_str(&format!("  {program} {s}\n", program = self.program_name))
-                });
-            }
-
-            res
-        };
-
-        // ——————————————————————————————————————— Commands ———————————————————————————————————————
-
-        let commands = if !self.commands.is_empty() {
-            "\n  Commands:\n\n".to_string() + &generate_commands_help_list(&self.commands)
-        } else {
-            "".to_string()
-        };
-
-        // ——————————————————————————————————————— Arguments ———————————————————————————————————————
-
-        let arguments = if !self.options.is_empty() {
-            "\n  Options:\n\n".to_string() + &generate_arguments_help_list(&self.options)
-        } else {
-            "".to_string()
-        };
         // ——————————————————————————————————————— Help ———————————————————————————————————————
 
         format!(
@@ -714,19 +819,53 @@ impl TinyArgs {
 Help:
 
 {usage}
-{commands} {arguments} {examples}
+{commands} {options} {examples}
 ",
         )
     }
 
-    /// Print the program help
-    pub fn print_help(&mut self) {
-        println!("{}", self.generate_help());
+    fn generate_command_help(&self, command_name: &str) -> String {
+        let command = self
+            .commands
+            .get(command_name)
+            .expect("Valid command definition");
+
+        let command_name = command.name;
+        let command_description = command.description;
+
+        let pcn = format!("{} {}", self.program_name.clone(), &command.name);
+        let usage =
+            generate_help_usage_list(&command.usage, &pcn, !command.options.is_empty(), false);
+
+        let examples = generate_help_example_list(&command.examples, &self.program_name);
+        let command_options = generate_help_option_list(&command.options, "Command Options");
+        let global_options = generate_help_option_list(&self.root.options, "Global Options");
+
+        // ——————————————————————————————————————— Help ———————————————————————————————————————
+
+        format!(
+            "
+Command: 
+
+   {command_name} - {command_description}
+
+Help:
+
+{usage}
+{command_options} {global_options} {examples}
+"
+        )
     }
 
     /// Print the program help and exit program with code
-    pub fn print_help_and_exit(&mut self, exit_code: i32) {
+    pub fn print_help_and_exit(&self, exit_code: i32) {
         println!("{}", self.generate_help());
+        std::process::exit(exit_code);
+    }
+
+    /// Print the program help and exit program with code
+    pub fn print_command_help_and_exit(&self, command_name: &str, exit_code: i32) {
+        println!("{}", self.generate_command_help(command_name));
         std::process::exit(exit_code);
     }
 }
@@ -735,7 +874,8 @@ Help:
 //                                    Free Functions
 // ——————————————————————————————————————————————————————————————————————————————————————
 
-fn generate_commands_help_list(commands: &HashMap<String, Command>) -> String {
+/// Generate command list
+fn generate_help_command_list(commands: &HashMap<String, Command>) -> String {
     let mut cmds_help = String::new();
 
     let mut keys: Vec<&String> = commands.keys().collect();
@@ -752,10 +892,15 @@ fn generate_commands_help_list(commands: &HashMap<String, Command>) -> String {
         cmds_help.push_str(line);
     }
 
+    if !cmds_help.is_empty() {
+        cmds_help = "\n  Commands:\n\n".to_string() + &cmds_help
+    };
+
     cmds_help
 }
 
-fn generate_arguments_help_list(options: &HashMap<String, OptionFlag>) -> String {
+/// Generate options list
+fn generate_help_option_list(options: &HashMap<String, OptionFlag>, title: &str) -> String {
     let mut args_help = String::new();
 
     let mut keys: Vec<&String> = options.keys().collect();
@@ -806,5 +951,39 @@ fn generate_arguments_help_list(options: &HashMap<String, OptionFlag>) -> String
         args_help.push_str(line);
     }
 
+    if !args_help.is_empty() {
+        args_help = format!("\n  {title}:\n\n") + &args_help
+    };
+
     args_help
+}
+
+/// Generate example list
+fn generate_help_example_list(examples: &[String], program_name: &str) -> String {
+    let mut res = String::new();
+
+    if !examples.is_empty() {
+        res = "\nExamples:\n\n".to_owned() + &res;
+        examples
+            .iter()
+            .for_each(|ex| res.push_str(&format!("  {program_name} {ex}\n",)));
+    }
+
+    res
+}
+
+/// Generate usage list
+fn generate_help_usage_list(
+    usage: &str,
+    program_name: &str,
+    has_options: bool,
+    has_commands: bool,
+) -> String {
+    if usage.is_empty() {
+        let options = if has_options { "[OPTIONS] " } else { "" };
+        let commands = if has_commands { "[COMMANDS] " } else { "" };
+        format!("  Usage: {program_name} {}{}[ARGS]...", options, commands,)
+    } else {
+        format!("  Usage: {program_name} {usage}")
+    }
 }
